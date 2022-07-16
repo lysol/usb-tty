@@ -84,9 +84,9 @@ int main(void)
   wdt_reset();
   softuart_init();
   // setup pins for softuart, led, etc. 
-  DDRD |= _BV(0) | _BV(1) | _BV(6); // two leds and output to loop
-  DDRD &= ~_BV(4); // input from loop
-  DDRB &= ~_BV(7); // input from loop
+  DDRD |= _BV(0) | _BV(1) | _BV(7); // two leds and output to loop
+  DDRB &= ~_BV(6); // input from loop
+  DDRF &= ~_BV(4); // input from button
   GlobalInterruptEnable();
   
   // Check for magic number in eeprom to see if unit has valid configuration. 
@@ -108,7 +108,7 @@ int main(void)
 
   while(1) { 
     // Have we been told to go into config mode?
-    if (!(PINB & (1<<7)) ) { 
+    if (!(PINF & (1<<4)) ) { 
       softuart_turn_rx_off();
       commandline(); 
       softuart_turn_rx_on();

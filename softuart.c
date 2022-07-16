@@ -128,33 +128,57 @@ volatile static unsigned char  timer_tx_ctr;
 volatile static unsigned char  bits_left_in_tx;
 volatile static unsigned short internal_tx_buffer; /* ! mt: was type uchar - this was wrong */
 
+#define INVERT_LOGIC 1
+
+void set_tx_led_on(void) {
+  PORTD |= _BV(0);
+}
+
+void set_tx_led_off(void) {
+  PORTD &= ~_BV(0); 
+}
+
+void set_rx_led_on(void) {
+  PORTD |= _BV(1);
+}
+
+void set_rx_led_off(void) {
+  PORTD &= ~_BV(1); 
+}
+
 // data is D6, led1 is D0, led2 is D1
 void set_tx_pin_high(void)
 { 
   // data on, led0 on
-  PORTD |= _BV(6); // set data line on
-
-  PORTD |= _BV(0);  
+  if (INVERT_LOGIC) {
+  	PORTD &= ~_BV(7); // set data line off
+  } else {
+  	PORTD |= _BV(7); // set data line on
+  }
+  set_tx_led_on();
   //  PORTD &= ~_BV(1); 
 }
 void set_tx_pin_low(void)
 {
   // data off, led0 off
-  PORTD &= ~_BV(6); // set data line off
-
-  PORTD &= ~_BV(0); 
+  if (!INVERT_LOGIC) {
+  	PORTD &= ~_BV(7); // set data line off
+  } else {
+  	PORTD |= _BV(7); // set data line on
+  }
+  set_tx_led_off();
   //  PORTD |= _BV(1);
 }
-
 int8_t get_rx_pin_status(void)
 {
   uint8_t val;
-  val = PIND & _BV(4);
+  val = PINB & _BV(6);
+  if (INVERT_LOGIC) val = !val;
   // val = SOFTUART_RXPIN  & ( 1<<SOFTUART_RXBIT );
   if (val)
-    PORTD |= _BV(1);
+	set_rx_led_on();
   else
-    PORTD &= ~_BV(1);
+	set_rx_led_off();
   return (!val);
 }
 
@@ -246,17 +270,15 @@ ISR(SOFTUART_T_COMP_LABEL)
 		}
 	}
 }
-
 static void avr_io_init(void)
 {
 	// TX-Pin as output (and indicator light)
   SOFTUART_TXDDR |= _BV(7)|_BV(3);
 //	SOFTUART_TXDDR |=  ( 1 << SOFTUART_TXBIT );
 	// RX-Pin as input
-        DDRD &= ~_BV(4);
+	SOFTUART_RXDDR &= ~_BV(SOFTUART_RXPINNUM);
 	SOFTUART_RXDDR &= ~( 1 << SOFTUART_RXBIT );
 }
-
 static void avr_timer_init(void)
 {
 	unsigned char sreg_tmp;
