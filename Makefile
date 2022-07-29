@@ -1,4 +1,4 @@
-MCU          = atmega32u2
+MCU          = atmega32u4
 ARCH         = AVR8
 BOARD        = USER
 F_CPU        = 16000000
@@ -12,23 +12,17 @@ CC_FLAGS += -DINCLUDE_AUTOPRINT
 #CC_FLAGS += -DPERCENT_TO_CMDLINE
 # LD_FLAGS     = -Wl,-u,vfprintf -lprintf_min  # use minimal printf library which is limited but way smaller
 CC	     = avr-gcc
-
 CPP	     = avr-g++
-
 # Default target
 all:
-
 program: $(TARGET).hex
-	avrdude -p $(MCU) -c dragon_isp -B 2mhz -U flash:w:$(TARGET).hex
-
+	avrdude -p $(MCU) -c avr109 -B 2mhz -P /dev/tty.usbmodem11201  -U flash:w:$(TARGET).hex
 pteensy: $(TARGET).hex
 	teensy_loader_cli -mmcu=$(MCU) -w -v $(TARGET).hex
-
 dfu: $(TARGET).hex
 	dfu-programmer $(MCU) erase
 	dfu-programmer $(MCU) flash main.hex
 	dfu-programmer $(MCU) reset
-
 # Include LUFA build script makefiles
 include $(LUFA_PATH)/Build/lufa_core.mk
 include $(LUFA_PATH)/Build/lufa_sources.mk
