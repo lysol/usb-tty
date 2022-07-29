@@ -9,7 +9,7 @@
 //
 // Adapted to AVR using avr-gcc and avr-libc
 // by Martin Thomas, Kaiserslautern, Germany
-// <eversmith@heizung-thomas.de> 
+// <eversmith@heizung-thomas.de>
 // http://www.siwawi.arubi.uni-kl.de/avr_projects
 //
 // AVR-port Version 0.3  4/2007
@@ -62,7 +62,7 @@
 //
 // ---------------------------------------------------------------------
 
-/* 
+/*
 Remarks by Martin Thomas (avr-gcc):
 V0.1:
 - stdio.h not used
@@ -84,7 +84,7 @@ V0.2:
 - added softuart_can_transmit()
 - Makefile based on template from WinAVR 1/2007
 - reformated
-- extended demo-application to show various methods to 
+- extended demo-application to show various methods to
   send a string from flash and RAM
 - demonstrate usage of avr-libc's stdio in demo-applcation
 - tested with ATmega644 @ 3,6864MHz system-clock using
@@ -96,312 +96,288 @@ V0.3
 - AVR-Studio Project-File
 */
 
-#include <avr/io.h>
-#include <avr/interrupt.h>
-#include <avr/pgmspace.h>
-#include <avr/delay.h>
 #include "softuart.h"
 #include "conf.h"
+#include <avr/delay.h>
+#include <avr/interrupt.h>
+#include <avr/io.h>
+#include <avr/pgmspace.h>
 
 #define SU_TRUE 1
 #define SU_FALSE 0
 
 // startbit and stopbit parsed internaly (see ISR)
-volatile static char              inbuf[SOFTUART_IN_BUF_SIZE];
-volatile static unsigned char    qin  = 0;
+volatile static char inbuf[SOFTUART_IN_BUF_SIZE];
+volatile static unsigned char qin = 0;
 volatile static unsigned char qout = 0;
-volatile static unsigned char    flag_rx_off;
-volatile static unsigned char    flag_rx_ready;
+volatile static unsigned char flag_rx_off;
+volatile static unsigned char flag_rx_ready;
 
 // 1 Startbit, 8 Databits, 1 Stopbit = 10 Bits/Frame
 // or for teletype, 1 start, 5 data, 2 stop = 8 bits/frame
-extern uint8_t rxbits, txbits; // epv
+extern uint8_t rxbits, txbits;      // epv
 volatile uint8_t framing_error = 0; // epv
 
 #define TX_NUM_OF_BITS (txbits)
 #define RX_NUM_OF_BITS (rxbits)
-volatile unsigned char  flag_tx_ready;
+volatile unsigned char flag_tx_ready;
 extern uint8_t confflags; // epv
 
 // volatile static unsigned char  flag_tx_ready;
-volatile static unsigned char  timer_tx_ctr;
-volatile static unsigned char  bits_left_in_tx;
-volatile static unsigned short internal_tx_buffer; /* ! mt: was type uchar - this was wrong */
+volatile static unsigned char timer_tx_ctr;
+volatile static unsigned char bits_left_in_tx;
+volatile static unsigned short
+    internal_tx_buffer; /* ! mt: was type uchar - this was wrong */
 
 #define INVERT_LOGIC 1
 
 // data is D6, led1 is D0, led2 is D1
-void set_tx_pin_high(void)
-{ 
+void set_tx_pin_high(void) {
   // data on, led0 on
   if (INVERT_LOGIC) {
-	SOFTUART_TXPORT &= ~SOFTUART_TXPINNUM; // set data line off
+    SOFTUART_TXPORT &= ~SOFTUART_TXPINNUM; // set data line off
   } else {
-	SOFTUART_TXPORT |= SOFTUART_TXPINNUM; // set data line on
+    SOFTUART_TXPORT |= SOFTUART_TXPINNUM; // set data line on
   }
   tx_led_on();
-  //  PORTD &= ~_BV(1); 
+  //  PORTD &= ~_BV(1);
 }
-void set_tx_pin_low(void)
-{
+void set_tx_pin_low(void) {
   // data off, led0 off
   if (!INVERT_LOGIC) {
-	SOFTUART_TXPORT &= ~SOFTUART_TXPINNUM; // set data line off
+    SOFTUART_TXPORT &= ~SOFTUART_TXPINNUM; // set data line off
   } else {
-	SOFTUART_TXPORT |= SOFTUART_TXPINNUM; // set data line on
+    SOFTUART_TXPORT |= SOFTUART_TXPINNUM; // set data line on
   }
   tx_led_off();
   //  PORTD |= _BV(1);
 }
-int8_t get_rx_pin_status(void)
-{
+int8_t get_rx_pin_status(void) {
   uint8_t val;
   val = SOFTUART_RXPIN & SOFTUART_RXPINNUM;
-  //if (INVERT_LOGIC) val = !val;
-  // val = SOFTUART_RXPIN  & ( 1<<SOFTUART_RXBIT );
+  // if (INVERT_LOGIC) val = !val;
+  //  val = SOFTUART_RXPIN  & ( 1<<SOFTUART_RXBIT );
   if (val)
-	rx_led_on();
+    rx_led_on();
   else
-	rx_led_off();
+    rx_led_off();
   return (!val);
 }
 
 // needs to be inverted if being fed through inverting optoisolator (6N139)
 // or normal if being fed directly
 // #define get_rx_pin_status()    ( SOFTUART_RXPIN  & ( 1<<SOFTUART_RXBIT ) )
-//#define get_rx_pin_status()    (!( SOFTUART_RXPIN  & ( 1<<SOFTUART_RXBIT ) )) // opto
+//#define get_rx_pin_status()    (!( SOFTUART_RXPIN  & ( 1<<SOFTUART_RXBIT ) ))
+//// opto
 
+ISR(SOFTUART_T_COMP_LABEL) {
+  static unsigned char flag_rx_waiting_for_stop_bit = SU_FALSE;
+  static unsigned char rx_mask;
 
+  static char timer_rx_ctr;
+  static char bits_left_in_rx;
+  static unsigned char internal_rx_buffer;
 
-ISR(SOFTUART_T_COMP_LABEL)
-{
-	static unsigned char flag_rx_waiting_for_stop_bit = SU_FALSE;
-	static unsigned char rx_mask;
-	
-	static char timer_rx_ctr;
-	static char bits_left_in_rx;
-	static unsigned char internal_rx_buffer;
-	
-	char start_bit, flag_in;
-	char tmp;
-	
-	// Transmitter Section
-	if ( flag_tx_ready ) {
-	  if (!(confflags & CONF_8BIT))
-	    if ((bits_left_in_tx == 1) && (timer_tx_ctr == 2)) // short circuit state machine for tty use
-	      timer_tx_ctr=1;
-	  
-		tmp = timer_tx_ctr;
-		if ( --tmp <= 0 ) { // if ( --timer_tx_ctr <= 0 )
-			if ( internal_tx_buffer & 0x01 ) {
-				set_tx_pin_high();
-			}
-			else {
-				set_tx_pin_low();
-			}
-			internal_tx_buffer >>= 1;
-			tmp = 3; // timer_tx_ctr = 3;
-			if ( --bits_left_in_tx <= 0 ) {
-				flag_tx_ready = SU_FALSE;
-			}
-		}
-		timer_tx_ctr = tmp;
-	}
+  char start_bit, flag_in;
+  char tmp;
 
-	// Receiver Section
-	if ( flag_rx_off == SU_FALSE ) {
-		if ( flag_rx_waiting_for_stop_bit ) {
-			if ( --timer_rx_ctr <= 0 ) {
-				flag_rx_waiting_for_stop_bit = SU_FALSE;
-				flag_rx_ready = SU_FALSE;
-				inbuf[qin] = internal_rx_buffer;
-				if ( ++qin >= SOFTUART_IN_BUF_SIZE ) {
-					// overflow - rst inbuf-index
-					qin = 0;
-				}
-			} else  // test for break condition -- EPV
-			  // if ((internal_rx_buffer == 0) && (get_rx_pin_status() == 0)) framing_error = 1;
-			  // this fails to distinguish a null char from a break but so does a real tty, i guess
-			  if ((internal_rx_buffer == 0)) framing_error = 1;
-			  else framing_error = 0;
-		}
-		else {  // rx_test_busy
-			if ( flag_rx_ready == SU_FALSE ) {
-				start_bit = get_rx_pin_status();
-				// test for start bit
-				if ( start_bit == 0 ) {
-					flag_rx_ready      = SU_TRUE;
-					internal_rx_buffer = 0;
-					timer_rx_ctr       = 4;
-					bits_left_in_rx    = RX_NUM_OF_BITS;
-					rx_mask            = 1;
-				}
-			}
-			else {  // rx_busy
-				if ( --timer_rx_ctr <= 0 ) {
-					// rcv
-					timer_rx_ctr = 3;
-					flag_in = get_rx_pin_status();
-					if ( flag_in ) {
-						internal_rx_buffer |= rx_mask;
-					}
-					rx_mask <<= 1;
-					if ( --bits_left_in_rx <= 0 ) {
-						flag_rx_waiting_for_stop_bit = SU_TRUE;
-					}
-				}
-			}
-		}
-	}
+  // Transmitter Section
+  if (flag_tx_ready) {
+    if (!(confflags & CONF_8BIT))
+      if ((bits_left_in_tx == 1) &&
+          (timer_tx_ctr == 2)) // short circuit state machine for tty use
+        timer_tx_ctr = 1;
+
+    tmp = timer_tx_ctr;
+    if (--tmp <= 0) { // if ( --timer_tx_ctr <= 0 )
+      if (internal_tx_buffer & 0x01) {
+        set_tx_pin_high();
+      } else {
+        set_tx_pin_low();
+      }
+      internal_tx_buffer >>= 1;
+      tmp = 3; // timer_tx_ctr = 3;
+      if (--bits_left_in_tx <= 0) {
+        flag_tx_ready = SU_FALSE;
+      }
+    }
+    timer_tx_ctr = tmp;
+  }
+
+  // Receiver Section
+  if (flag_rx_off == SU_FALSE) {
+    if (flag_rx_waiting_for_stop_bit) {
+      if (--timer_rx_ctr <= 0) {
+        flag_rx_waiting_for_stop_bit = SU_FALSE;
+        flag_rx_ready = SU_FALSE;
+        inbuf[qin] = internal_rx_buffer;
+        if (++qin >= SOFTUART_IN_BUF_SIZE) {
+          // overflow - rst inbuf-index
+          qin = 0;
+        }
+      } else // test for break condition -- EPV
+        // if ((internal_rx_buffer == 0) && (get_rx_pin_status() == 0))
+        // framing_error = 1; this fails to distinguish a null char from a break
+        // but so does a real tty, i guess
+        if ((internal_rx_buffer == 0))
+          framing_error = 1;
+        else
+          framing_error = 0;
+    } else { // rx_test_busy
+      if (flag_rx_ready == SU_FALSE) {
+        start_bit = get_rx_pin_status();
+        // test for start bit
+        if (start_bit == 0) {
+          flag_rx_ready = SU_TRUE;
+          internal_rx_buffer = 0;
+          timer_rx_ctr = 4;
+          bits_left_in_rx = RX_NUM_OF_BITS;
+          rx_mask = 1;
+        }
+      } else { // rx_busy
+        if (--timer_rx_ctr <= 0) {
+          // rcv
+          timer_rx_ctr = 3;
+          flag_in = get_rx_pin_status();
+          if (flag_in) {
+            internal_rx_buffer |= rx_mask;
+          }
+          rx_mask <<= 1;
+          if (--bits_left_in_rx <= 0) {
+            flag_rx_waiting_for_stop_bit = SU_TRUE;
+          }
+        }
+      }
+    }
+  }
 }
-static void avr_io_init(void)
-{
-	// TX-Pin as output (and indicator light)
-    SOFTUART_TXDDR |= SOFTUART_TXPINNUM;
-//	SOFTUART_TXDDR |=  ( 1 << SOFTUART_TXBIT );
-	// RX-Pin as input
-	SOFTUART_RXDDR &= ~SOFTUART_RXPINNUM;
-	SOFTUART_RXDDR &= ~( 1 << SOFTUART_RXBIT );
+static void avr_io_init(void) {
+  // TX-Pin as output (and indicator light)
+  SOFTUART_TXDDR |= SOFTUART_TXPINNUM;
+  //	SOFTUART_TXDDR |=  ( 1 << SOFTUART_TXBIT );
+  // RX-Pin as input
+  SOFTUART_RXDDR &= ~SOFTUART_RXPINNUM;
+  SOFTUART_RXDDR &= ~(1 << SOFTUART_RXBIT);
 }
-static void avr_timer_init(void)
-{
-	unsigned char sreg_tmp;
-	
-	sreg_tmp = SREG;
-	cli();
-	
+static void avr_timer_init(void) {
+  unsigned char sreg_tmp;
+
+  sreg_tmp = SREG;
+  cli();
+
 #ifdef OLD_TIMER_SETUP
-	SOFTUART_T_COMP_REG = SOFTUART_TIMERTOP;     /* set top */
-	SOFTUART_T_CONTR_REGA = SOFTUART_CTC_MASKA | SOFTUART_PRESC_MASKA;
-	SOFTUART_T_CONTR_REGB = SOFTUART_CTC_MASKB | SOFTUART_PRESC_MASKB;
-	SOFTUART_T_INTCTL_REG |= SOFTUART_CMPINT_EN_MASK;
-	SOFTUART_T_CNT_REG = 0; /* reset counter */
+  SOFTUART_T_COMP_REG = SOFTUART_TIMERTOP; /* set top */
+  SOFTUART_T_CONTR_REGA = SOFTUART_CTC_MASKA | SOFTUART_PRESC_MASKA;
+  SOFTUART_T_CONTR_REGB = SOFTUART_CTC_MASKB | SOFTUART_PRESC_MASKB;
+  SOFTUART_T_INTCTL_REG |= SOFTUART_CMPINT_EN_MASK;
+  SOFTUART_T_CNT_REG = 0; /* reset counter */
 #endif
-	
-	SREG = sreg_tmp;
 
-	//OCR1A = 1833; // 16MHZ/64/(3 * 45.45 baud) = 1833.5166
-	OCR1A = 1667; // 50 baud
-	TCCR1A = 0;
-	TCCR1B = _BV(WGM12)|_BV(CS11)|_BV(CS10); // WGM=CTC mode, clk prescale = /64
-	// TIMSK1 |= TIMSK1 |= _BV(OCIE1A)|_BV(TOIE1); // How did this ever even work??? Wtf
-	TIMSK1 |= _BV(OCIE1A)|_BV(TOIE1);
-	TCNT1 = 0;
+  SREG = sreg_tmp;
+
+  // OCR1A = 1833; // 16MHZ/64/(3 * 45.45 baud) = 1833.5166
+  OCR1A = 1667; // 50 baud
+  TCCR1A = 0;
+  TCCR1B =
+      _BV(WGM12) | _BV(CS11) | _BV(CS10); // WGM=CTC mode, clk prescale = /64
+  // TIMSK1 |= TIMSK1 |= _BV(OCIE1A)|_BV(TOIE1); // How did this ever even
+  // work??? Wtf
+  TIMSK1 |= _BV(OCIE1A) | _BV(TOIE1);
+  TCNT1 = 0;
 }
-void softuart_init( void )
-{
-	flag_tx_ready = SU_FALSE;
-	flag_rx_ready = SU_FALSE;
-	flag_rx_off   = SU_FALSE;
-	
-	set_tx_pin_high(); /* mt: set to high to avoid garbage on init */
-	avr_io_init();
+void softuart_init(void) {
+  flag_tx_ready = SU_FALSE;
+  flag_rx_ready = SU_FALSE;
+  flag_rx_off = SU_FALSE;
 
-	// timer_set( BAUD_RATE );
-	// set_timer_interrupt( timer_isr );
-	avr_timer_init(); // replaces the two calls above
-}
+  set_tx_pin_high(); /* mt: set to high to avoid garbage on init */
+  avr_io_init();
 
-static void idle(void)
-{
-	// timeout handling goes here 
-	// - but there is a "softuart_kbhit" in this code...
-	// add watchdog-reset here if needed
+  // timer_set( BAUD_RATE );
+  // set_timer_interrupt( timer_isr );
+  avr_timer_init(); // replaces the two calls above
 }
 
-void softuart_turn_rx_on( void )
-{
-	flag_rx_off = SU_FALSE;
+static void idle(void) {
+  // timeout handling goes here
+  // - but there is a "softuart_kbhit" in this code...
+  // add watchdog-reset here if needed
 }
 
-void softuart_turn_rx_off( void )
-{
-	flag_rx_off = SU_TRUE;
+void softuart_turn_rx_on(void) { flag_rx_off = SU_FALSE; }
+
+void softuart_turn_rx_off(void) { flag_rx_off = SU_TRUE; }
+
+char softuart_getchar(void) {
+  char ch;
+
+  if (qout == qin)
+    return (0);
+
+  ch = inbuf[qout];
+
+  if (++qout >= SOFTUART_IN_BUF_SIZE) {
+    qout = 0;
+  }
+
+  return (ch);
 }
 
-char softuart_getchar( void )
-{
-	char ch;
+unsigned char softuart_kbhit(void) { return (qin != qout); }
 
-        if (qout == qin)
-            return(0);
-
-	ch = inbuf[qout];
- 
-	if ( ++qout >= SOFTUART_IN_BUF_SIZE ) {
-		qout = 0;
-	}
-	
-	return( ch );
+void softuart_flush_input_buffer(void) {
+  qin = 0;
+  qout = 0;
 }
 
-unsigned char softuart_kbhit( void )
-{
-	return( qin != qout );
+unsigned char softuart_can_transmit(void) { return (flag_tx_ready); }
+
+void softuart_putchar(const char ch) {
+  while (flag_tx_ready) {
+    ; // wait for transmitter ready
+      // add watchdog-reset here if needed;
+  }
+
+  // invoke_UART_transmit
+  timer_tx_ctr = 3;
+  // bits_left_in_tx includes 1 start + 2 stop bits,
+  // so should be 8 for teletype.
+  bits_left_in_tx = TX_NUM_OF_BITS;
+  if (confflags & CONF_8BIT)
+    internal_tx_buffer = (ch << 1) | 0x200;
+  else
+    // for teletype, word = Start, data 1-5, Stop, Stop
+    internal_tx_buffer = (ch << 1) | 0xC0;
+  flag_tx_ready = SU_TRUE;
 }
 
-void softuart_flush_input_buffer( void )
-{
-	qin  = 0;
-	qout = 0;
-}
-	
-unsigned char softuart_can_transmit( void ) 
-{
-	return ( flag_tx_ready );
+void softuart_puts(const char *s) {
+  while (*s) {
+    softuart_putchar(*s++);
+  }
 }
 
-void softuart_putchar( const char ch )
-{
-	while ( flag_tx_ready ) {
-		; // wait for transmitter ready
-		  // add watchdog-reset here if needed;
-	}
+void softuart_puts_p(const char *prg_s) {
+  char c;
 
-	// invoke_UART_transmit
-	timer_tx_ctr       = 3;
-	// bits_left_in_tx includes 1 start + 2 stop bits, 
-	// so should be 8 for teletype. 
-	bits_left_in_tx    = TX_NUM_OF_BITS; 
-	if (confflags & CONF_8BIT)
-	  internal_tx_buffer = ( ch<<1 ) | 0x200;
-	else
-	// for teletype, word = Start, data 1-5, Stop, Stop
-	  internal_tx_buffer = ( ch<<1 ) | 0xC0;
-	flag_tx_ready      = SU_TRUE;
-}
-	
-void softuart_puts( const char *s )
-{
-	while ( *s ) {
-		softuart_putchar( *s++ );
-	}
-}
-	
-void softuart_puts_p( const char *prg_s )
-{
-	char c;
-
-	while ( ( c = pgm_read_byte( prg_s++ ) ) ) {
-		softuart_putchar(c);
-	}
+  while ((c = pgm_read_byte(prg_s++))) {
+    softuart_putchar(c);
+  }
 }
 
 char baudot_to_ascii(char);
-void softuart_status(void)
-{ 
+void softuart_status(void) {
   uint8_t i;
   char ascii_char;
   printf("%u %u ", qin, qout);
-  for(i=0; i<SOFTUART_IN_BUF_SIZE; i++) {
-        ascii_char = baudot_to_ascii(inbuf[i]);
-	printf("%c", isprint(ascii_char)?ascii_char:'.');
+  for (i = 0; i < SOFTUART_IN_BUF_SIZE; i++) {
+    ascii_char = baudot_to_ascii(inbuf[i]);
+    printf("%c", isprint(ascii_char) ? ascii_char : '.');
   }
   printf("\r\n");
-} 
+}
 
-void send_break(void)
-{
+void send_break(void) {
   softuart_turn_rx_off();
   set_tx_pin_low();
   _delay_ms(500);
