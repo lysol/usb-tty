@@ -5,6 +5,7 @@
 #include <avr/eeprom.h>
 #include "lufa_serial.h"
 #include "baudot.h"
+#include "pins.h"
 #include "softuart.h"
 #include "usb_serial_getstr.h"
 #include "conf.h"
@@ -71,6 +72,10 @@ USB_ClassInfo_CDC_Device_t VirtualSerial_CDC_Interface = {
   },
 };
 
+#define RELAYS_OFF 0
+#define RELAYS_ENABLED 1
+#define RELAYS_FORCED_ON 2
+
 int main(void)
 {
   uint8_t column = 0, framing_error_last;
@@ -84,9 +89,14 @@ int main(void)
   wdt_reset();
   softuart_init();
   // setup pins for softuart, led, etc. 
-  DDRD |= _BV(0) | _BV(1) | _BV(7); // two leds and output to loop
-  DDRB &= ~_BV(6); // input from loop
-  DDRF &= ~_BV(4); // input from button
+  SOFTUART_TXDDR |= TX_LEDPIN | RX_LEDPIN | SOFTUART_TXPINNUM; // two leds and output to loop
+  AC_RELAY_DDR |= AC_RELAY_PINNUM;
+  CURRENT_LOOP_RELAY_DDR |= CURRENT_LOOP_RELAY_PINNUM;
+  SOFTUART_RXDDR &= ~SOFTUART_RXPINNUM; // input from loop
+  BUTTON_DDR &= ~BUTTON_PIN; // input from button
+  RELAYS_ENABLED_DDR &= ~RELAYS_ENABLED_PINNUM;
+  RELAYS_FORCED_ON_DDR &= ~RELAYS_FORCED_ON_PINNUM;
+
   GlobalInterruptEnable();
   
   // Check for magic number in eeprom to see if unit has valid configuration. 
@@ -102,11 +112,64 @@ int main(void)
   CDC_Device_CreateStream(&VirtualSerial_CDC_Interface, &USBSerialStream);
   stdin = stdout = &USBSerialStream; // so printf, etc go to usb serial.
   sei();
+
+  int current_state = RELAYS_OFF;
+  int loopnum = 0;
+
   // Here is a polling loop where we look for characters or events from either USB or TTY
   // and relay to the other side. Nothing in this loop should block. well, send_break() does
   // very briefly but it's ok. 
+  while(1) {
+    loopnum += 1;
 
-  while(1) { 
+    if (current_state == RELAYS_OFF) {
+      _delay_ms(1000);
+      rx_led_off();
+      tx_led_off();
+      current_loop_on();
+      for(int i=0; i<4; i++) {
+        _delay_ms(500);
+        rx_led_on();
+        tx_led_on();
+        _delay_ms(500);
+        rx_led_off();
+        tx_led_off();
+      }
+      ac_on();
+      current_state = RELAYS_FORCED_ON;
+    }
+
+    // // What's the switch setting?
+    // if (relays_enabled()) {
+    //   // on-demand
+    //   current_state = RELAYS_ENABLED;
+    //   // unimplemented actually
+    // } else if (relays_forced_on()) {
+    //   if (current_state != RELAYS_FORCED_ON) {
+    //     // changing states, turn on the relays
+    //     AC_RELAY_PORT |= AC_RELAY_PINNUM;
+    //     CURRENT_LOOP_RELAY_PORT |= CURRENT_LOOP_RELAY_PINNUM;
+    //   }
+    //   current_state = RELAYS_FORCED_ON;
+    // } else {
+    //   if (current_state != RELAYS_OFF) {
+    //     // changing states, so turn off
+    //     AC_RELAY_PORT &= ~AC_RELAY_PINNUM;
+    //     CURRENT_LOOP_RELAY_PORT &= ~CURRENT_LOOP_RELAY_PINNUM;
+    //   }
+    //   current_state = RELAYS_OFF;
+    // }
+
+    // if (loopnum % 2 == 0) {
+    //   CURRENT_LOOP_RELAY_PORT &= ~CURRENT_LOOP_RELAY_PINNUM;
+    //   AC_RELAY_PORT &= ~AC_RELAY_PINNUM;
+    // } else {
+    //   CURRENT_LOOP_RELAY_PORT |= CURRENT_LOOP_RELAY_PINNUM;
+    //   AC_RELAY_PORT |= AC_RELAY_PINNUM;
+    // }
+    // _delay_ms(1000);
+
+
     // Have we been told to go into config mode?
     if (!(PINF & (1<<4)) ) { 
       softuart_turn_rx_off();
@@ -603,12 +666,12 @@ void ee_wipe(void)
     eeprom_write_byte(i, 0xff);
   }
   // put in some sane defaults or it will hang on next boot.
-  i = 1833; // 45.45 baud
+  //i = 1833; // 45.45 baud
+  i = 1667; // 50 baud
   eeprom_write_block(&i, (void *)EEP_BAUDDIV_LOCATION, (size_t)EEP_BAUDDIV_SIZE);
   // i = CONF_TRANSLATE | CONF_CRLF | CONF_SHOWBREAK;
   i = CONF_TRANSLATE | CONF_CRLF;
   eeprom_write_block(&i, (void *)EEP_CONFFLAGS_LOCATION, (size_t)EEP_CONFFLAGS_SIZE);
-
   // copy the default ascii/baudot translation table from flash to eeprom
   for(i=0; i<32; i++) { 
     eeprom_write_byte(EEP_TABLES_START + i, pgm_read_byte(&(ltrs[i])));

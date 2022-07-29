@@ -130,55 +130,39 @@ volatile static unsigned short internal_tx_buffer; /* ! mt: was type uchar - thi
 
 #define INVERT_LOGIC 1
 
-void set_tx_led_on(void) {
-  PORTD |= _BV(0);
-}
-
-void set_tx_led_off(void) {
-  PORTD &= ~_BV(0); 
-}
-
-void set_rx_led_on(void) {
-  PORTD |= _BV(1);
-}
-
-void set_rx_led_off(void) {
-  PORTD &= ~_BV(1); 
-}
-
 // data is D6, led1 is D0, led2 is D1
 void set_tx_pin_high(void)
 { 
   // data on, led0 on
   if (INVERT_LOGIC) {
-  	PORTD &= ~_BV(7); // set data line off
+	SOFTUART_TXPORT &= ~SOFTUART_TXPINNUM; // set data line off
   } else {
-  	PORTD |= _BV(7); // set data line on
+	SOFTUART_TXPORT |= SOFTUART_TXPINNUM; // set data line on
   }
-  set_tx_led_on();
+  tx_led_on();
   //  PORTD &= ~_BV(1); 
 }
 void set_tx_pin_low(void)
 {
   // data off, led0 off
   if (!INVERT_LOGIC) {
-  	PORTD &= ~_BV(7); // set data line off
+	SOFTUART_TXPORT &= ~SOFTUART_TXPINNUM; // set data line off
   } else {
-  	PORTD |= _BV(7); // set data line on
+	SOFTUART_TXPORT |= SOFTUART_TXPINNUM; // set data line on
   }
-  set_tx_led_off();
+  tx_led_off();
   //  PORTD |= _BV(1);
 }
 int8_t get_rx_pin_status(void)
 {
   uint8_t val;
-  val = PINB & _BV(6);
-  if (INVERT_LOGIC) val = !val;
+  val = SOFTUART_RXPIN & SOFTUART_RXPINNUM;
+  //if (INVERT_LOGIC) val = !val;
   // val = SOFTUART_RXPIN  & ( 1<<SOFTUART_RXBIT );
   if (val)
-	set_rx_led_on();
+	rx_led_on();
   else
-	set_rx_led_off();
+	rx_led_off();
   return (!val);
 }
 
@@ -273,10 +257,10 @@ ISR(SOFTUART_T_COMP_LABEL)
 static void avr_io_init(void)
 {
 	// TX-Pin as output (and indicator light)
-  SOFTUART_TXDDR |= _BV(7)|_BV(3);
+    SOFTUART_TXDDR |= SOFTUART_TXPINNUM;
 //	SOFTUART_TXDDR |=  ( 1 << SOFTUART_TXBIT );
 	// RX-Pin as input
-	SOFTUART_RXDDR &= ~_BV(SOFTUART_RXPINNUM);
+	SOFTUART_RXDDR &= ~SOFTUART_RXPINNUM;
 	SOFTUART_RXDDR &= ~( 1 << SOFTUART_RXBIT );
 }
 static void avr_timer_init(void)
@@ -288,26 +272,22 @@ static void avr_timer_init(void)
 	
 #ifdef OLD_TIMER_SETUP
 	SOFTUART_T_COMP_REG = SOFTUART_TIMERTOP;     /* set top */
-
 	SOFTUART_T_CONTR_REGA = SOFTUART_CTC_MASKA | SOFTUART_PRESC_MASKA;
 	SOFTUART_T_CONTR_REGB = SOFTUART_CTC_MASKB | SOFTUART_PRESC_MASKB;
-
 	SOFTUART_T_INTCTL_REG |= SOFTUART_CMPINT_EN_MASK;
-
 	SOFTUART_T_CNT_REG = 0; /* reset counter */
 #endif
 	
 	SREG = sreg_tmp;
 
-
-	OCR1A = 1833; // 16MHZ/64/(3 * 45.45 baud) = 1833.5166
+	//OCR1A = 1833; // 16MHZ/64/(3 * 45.45 baud) = 1833.5166
+	OCR1A = 1667; // 50 baud
 	TCCR1A = 0;
 	TCCR1B = _BV(WGM12)|_BV(CS11)|_BV(CS10); // WGM=CTC mode, clk prescale = /64
 	// TIMSK1 |= TIMSK1 |= _BV(OCIE1A)|_BV(TOIE1); // How did this ever even work??? Wtf
 	TIMSK1 |= _BV(OCIE1A)|_BV(TOIE1);
 	TCNT1 = 0;
 }
-
 void softuart_init( void )
 {
 	flag_tx_ready = SU_FALSE;
