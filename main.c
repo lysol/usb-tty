@@ -297,13 +297,16 @@ int main(void) {
 void commandline(void) {
   uint8_t n, valid;
   char *res = NULL;
-  static char buf[CMDBUFLEN]; // command line input buf
+  static char buf[CMDBUFLEN]; // command line input buffer
+
   softuart_turn_rx_off();
   help();
+
   while (1) {
     valid = 0;
     printf("cmd> ");
     memset(buf, 0, CMDBUFLEN);
+
     n = usb_serial_getstr(buf, CMDBUFLEN - 1);
     printf_P(PSTR("\r\n"));
     if (n == 0)
@@ -321,6 +324,7 @@ void commandline(void) {
       softuart_turn_rx_on();
       return;
     }
+
     // save/load/show settings
     if (strncmp(res, "save", 5) == 0) {
       valid = 1;
@@ -443,11 +447,13 @@ void commandline(void) {
       confflags |= CONF_CRLF;
       printf_P(PSTR("CR or LF --> CRLF.\r\n"));
     }
+
     if (strncmp(res, "nocrlf", 7) == 0) {
       valid = 1;
       confflags &= ~CONF_CRLF;
       printf_P(PSTR("CR & LF independent.\r\n"));
     }
+
     if (strncmp(res, "showbreak", 10) == 0) {
       valid = 1;
       confflags |= CONF_SHOWBREAK;
@@ -480,6 +486,7 @@ void commandline(void) {
       confflags &= ~CONF_TRANSLATE;
       printf_P(PSTR("8 bit mode for ascii machines.\r\n"));
     }
+
     if (strncmp(res, "no8bit", 7) == 0) {
       valid = 1;
       confflags &= ~CONF_8BIT;
@@ -510,6 +517,7 @@ void commandline(void) {
       confflags |= CONF_UNSHIFT_ON_SPACE;
       printf_P(PSTR("Unshift-on-space enabled.\r\n"));
     }
+
     if (strncmp(res, "nousos", 7) == 0) {
       valid = 1;
       confflags &= ~CONF_UNSHIFT_ON_SPACE;
