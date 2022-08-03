@@ -1,3 +1,35 @@
+I've forked this firmware's source because I need to adjust it for use
+with a Siemens T100. The ITA2 mapping is slightly off for this model
+of teleprinter, now you can send `C-g` and ring your bell to your heart's content.
+
+I've also added support for `DC2` (`C-r`) and `DC4` (`C-t`) to enable
+and disable the current loop and motor via relays. The current loop relay
+will enable first, then the LEDs will flash for four seconds, and the
+motor relay will enable. This gives it a moment so the teleprinter
+runs with the loop closed from the start. For powering the relays off,
+the inverse occurs, but the delay is only three seconds.
+
+If you are automating communications with the teleprinter, allow for
+appropriate pauses before sending characters. Flow control here means
+adding a delay in your code, sorry.
+
+Because I am using a Pro Micro, I had to adjust things for an atmega32u4.
+My particular fuse settings wile flashing the CDC firmware to it are as
+follows:
+
+    avrdude -v \
+      -patmega32u4 -cbuspirate \
+      -P /dev/tty.usbserial-AK06X1J4 \
+      -e \
+      -U flash:w:BootloaderCDC.hex \
+      -U lfuse:w:0xDE:m \
+      -U hfuse:w:0xD1:m \
+      -U efuse:w:0xC3:m
+
+Use a fuse calculator if you are unsure of what you are doing.
+
+--------------
+
 For full info and docs, see http://heepy.net/index.php/USB-teletype
 
 quickstart:
