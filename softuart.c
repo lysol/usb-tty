@@ -95,7 +95,7 @@ V0.3
 - tested with ATtiny85 @ 1MHz (int R/C) with 2400 bps
 - AVR-Studio Project-File
 */
-
+#include "pins.h"
 #include "softuart.h"
 #include "conf.h"
 #include <avr/delay.h>

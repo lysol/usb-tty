@@ -1,3 +1,4 @@
+#include <stdio.h>
 char baudot_to_ascii(char);
 char ascii_to_baudot(char);
 int tty_putchar(char, FILE *);
