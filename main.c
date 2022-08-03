@@ -83,6 +83,39 @@ USB_ClassInfo_CDC_Device_t VirtualSerial_CDC_Interface = {
 #define RELAYS_ENABLED 1
 #define RELAYS_FORCED_ON 2
 
+
+void relays_off(int *relay_state) {
+    if (*relay_state != RELAYS_OFF) {
+        ac_off();
+        for (int i = 0; i < 6; i++) {
+          _delay_ms(250);
+          rx_led_on();
+          tx_led_on();
+          _delay_ms(250);
+          rx_led_off();
+          tx_led_off();
+        }
+        current_loop_off();
+        *relay_state = RELAYS_OFF;
+    }
+}
+
+void relays_on(int *relay_state) {
+    if (*relay_state != RELAYS_ENABLED) {
+        current_loop_on();
+        for (int i = 0; i < 8; i++) {
+          _delay_ms(250);
+          rx_led_on();
+          tx_led_on();
+          _delay_ms(250);
+          rx_led_off();
+          tx_led_off();
+        }
+        ac_on();
+        *relay_state = RELAYS_ENABLED;
+    }
+}
+
 int main(void) {
   uint8_t column = 0, framing_error_last;
   char char_from_usb;
@@ -123,61 +156,14 @@ int main(void) {
   stdin = stdout = &USBSerialStream; // so printf, etc go to usb serial.
   sei();
 
-  int current_state = RELAYS_OFF;
+  int relay_state = RELAYS_OFF;
   int loopnum = 0;
 
   // Here is a polling loop where we look for characters or events from either
   // USB or TTY and relay to the other side. Nothing in this loop should block.
   // well, send_break() does very briefly but it's ok.
   while (1) {
-    loopnum += 1;
-
-    if (current_state == RELAYS_OFF) {
-      _delay_ms(1000);
-      rx_led_off();
-      tx_led_off();
-      current_loop_on();
-      for (int i = 0; i < 4; i++) {
-        _delay_ms(500);
-        rx_led_on();
-        tx_led_on();
-        _delay_ms(500);
-        rx_led_off();
-        tx_led_off();
-      }
-      ac_on();
-      current_state = RELAYS_FORCED_ON;
-    }
-
-    // // What's the switch setting?
-    // if (relays_enabled()) {
-    //   // on-demand
-    //   current_state = RELAYS_ENABLED;
-    //   // unimplemented actually
-    // } else if (relays_forced_on()) {
-    //   if (current_state != RELAYS_FORCED_ON) {
-    //     // changing states, turn on the relays
-    //     AC_RELAY_PORT |= AC_RELAY_PINNUM;
-    //     CURRENT_LOOP_RELAY_PORT |= CURRENT_LOOP_RELAY_PINNUM;
-    //   }
-    //   current_state = RELAYS_FORCED_ON;
-    // } else {
-    //   if (current_state != RELAYS_OFF) {
-    //     // changing states, so turn off
-    //     AC_RELAY_PORT &= ~AC_RELAY_PINNUM;
-    //     CURRENT_LOOP_RELAY_PORT &= ~CURRENT_LOOP_RELAY_PINNUM;
-    //   }
-    //   current_state = RELAYS_OFF;
-    // }
-
-    // if (loopnum % 2 == 0) {
-    //   CURRENT_LOOP_RELAY_PORT &= ~CURRENT_LOOP_RELAY_PINNUM;
-    //   AC_RELAY_PORT &= ~AC_RELAY_PINNUM;
-    // } else {
-    //   CURRENT_LOOP_RELAY_PORT |= CURRENT_LOOP_RELAY_PINNUM;
-    //   AC_RELAY_PORT |= AC_RELAY_PINNUM;
-    // }
-    // _delay_ms(1000);
+    //loopnum += 1;
 
     // Have we been told to go into config mode?
     if (!(PINF & (1 << 4))) {
@@ -262,6 +248,21 @@ int main(void) {
             tty_putchar_raw(char_from_usb & 0x1F);
         }
       }
+
+#ifdef RELAY_USB_CONTROL
+      switch(char_from_usb) {
+        case 0x14:
+            // DC4 C-t relays_off
+            relays_off(&relay_state);
+            break;
+        case 0x12:
+            // DC2 C-r relays on
+            relays_on(&relay_state);
+            break;
+        default:
+            break;
+      }
+#endif
 
 #ifdef PERCENT_TO_CMDLINE
       if (char_from_usb == '%') { // just for testing.

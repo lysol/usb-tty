@@ -2,3 +2,5 @@
 
 #define BUTTON_DDR DDRF
 #define BUTTON_PIN _BV(4)
+
+#define RELAY_USB_CONTROL 1
