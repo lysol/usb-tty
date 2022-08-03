@@ -28,6 +28,8 @@ follows:
 
 Use a fuse calculator if you are unsure of what you are doing.
 
+- DRA
+
 --------------
 
 For full info and docs, see http://heepy.net/index.php/USB-teletype
