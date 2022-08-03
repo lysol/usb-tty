@@ -19,21 +19,21 @@ void do_autoprint(void)
   char c;
   uint16_t i;
   softuart_turn_rx_off();
-  tty_putchar('\r', 0);
-  tty_putchar('\n', 0);
-  tty_putchar(64,0); // try to force known ltrs state
+  tty_putchar('\r');
+  tty_putchar('\n');
+  tty_putchar(64); // try to force known ltrs state
   tty_putchar_raw(31); // set ltrs
   for(i=0; i<512; i++) {
     c = eeprom_read_byte(i+0x200);
     if (c == 0xff) break;
-    tty_putchar(c,0);
+    tty_putchar(c);
     if (c == '\r')
-      tty_putchar('\n', 0);
+      tty_putchar('\n');
     CDC_Device_USBTask(&VirtualSerial_CDC_Interface);
     USB_USBTask();
   }
-  tty_putchar('\r', 0);
-  tty_putchar('\n', 0);
+  tty_putchar('\r');
+  tty_putchar('\n');
   softuart_turn_rx_on();
 }
 

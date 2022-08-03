@@ -17,7 +17,7 @@ uint8_t baudot_shift_rcv = LTRS;
 uint8_t baudot_shift_send = LTRS;
 
 // take an ASCII char, send Baudot to teletype
-int tty_putchar(char c, FILE *stream) {
+int tty_putchar(char c) {
   char b;
   b = ascii_to_baudot(toupper(c));
   if (b == 0)

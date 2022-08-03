@@ -32,7 +32,7 @@ void commandline(void);
 void ee_dump(void);
 void ee_wipe(void);
 void usbserial_tasks(void);
-int tty_putchar(char c, FILE *stream);
+int tty_putchar(char c);
 void softuart_status(void);
 uint16_t divisor_to_baud(uint16_t);
 uint16_t baud_to_divisor(uint16_t);
@@ -222,10 +222,10 @@ int main(void) {
           // ASCII CR or LF ---> tty CR _and_ LF
           if ((confflags & CONF_CRLF) &&
               ((char_from_usb == 0x0d) || (char_from_usb == 0x0a))) {
-            tty_putchar('\r', 0);
-            tty_putchar('\n', 0);
+            tty_putchar('\r');
+            tty_putchar('\n');
           } else
-            tty_putchar(char_from_usb, 0);
+            tty_putchar(char_from_usb);
 
           // auto-CRLF on send. only works once we've seen the first newline
           if ((confflags & CONF_AUTOCR)) {
@@ -234,8 +234,8 @@ int main(void) {
             if ((char_from_usb == 0x0d) || (char_from_usb == 0x0a))
               column = 0;
             if (column >= 68) { // prob should be a config option
-              tty_putchar('\r', 0);
-              tty_putchar('\n', 0);
+              tty_putchar('\r');
+              tty_putchar('\n');
               column = 0;
             }
           }
