@@ -16,7 +16,7 @@ CPP	     = avr-g++
 # Default target
 all:
 program: $(TARGET).hex
-	avrdude -p $(MCU) -c avr109 -B 2mhz -P /dev/tty.usbmodem11201  -U flash:w:$(TARGET).hex
+	./program.sh $(MCU) $(TARGET)
 pteensy: $(TARGET).hex
 	teensy_loader_cli -mmcu=$(MCU) -w -v $(TARGET).hex
 dfu: $(TARGET).hex
